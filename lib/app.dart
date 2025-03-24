@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui';
 
 import 'package:async_downloader/download_item.dart';
 import 'package:async_downloader/file_viewer.dart';
@@ -172,6 +173,60 @@ class DownloaderAppState extends State<DownloaderApp> {
     super.dispose();
   }
 
+  Widget _buildResponsiveWrapper(Widget child) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const mobileMaxWidth = 600.0; // Standard mobile width breakpoint
+
+        if (constraints.maxWidth <= mobileMaxWidth) {
+          return child;
+        }
+
+        // For larger screens, center the app with mobile width
+        return Stack(
+          children: [
+            // Blurred background using button color
+            Container(
+              width: double.infinity,
+              height: double.infinity,
+              color: Theme.of(context).colorScheme.surface,
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0),
+                child: Container(),
+              ),
+            ),
+            // Centered app content
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(8.0),
+                width: mobileMaxWidth,
+                constraints: BoxConstraints(
+                  maxHeight: math.min(constraints.maxHeight, 800.0),
+                ),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.primary,
+                    width: 2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.1),
+                      blurRadius: 20,
+                      spreadRadius: 5,
+                    ),
+                  ],
+                ),
+                child: child,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final Color textColor =
@@ -179,52 +234,42 @@ class DownloaderAppState extends State<DownloaderApp> {
     final Color accentColor =
         widget.isDarkMode ? const Color(0xFFE0FF4F) : const Color(0xFF00272B);
 
-    return Scaffold(
-      appBar: AppBar(
-        centerTitle: true,
-        title: Text('Async Downloader', style: TextStyle(color: textColor)),
-        actions: [
-          IconButton(
-            icon: Icon(
-              widget.isDarkMode ? Icons.light_mode : Icons.dark_mode,
-              color: textColor,
+    return _buildResponsiveWrapper(
+      Scaffold(
+        appBar: AppBar(
+          centerTitle: true,
+          title: Text('Async Downloader', style: TextStyle(color: textColor)),
+          actions: [
+            IconButton(
+              icon: Icon(
+                widget.isDarkMode ? Icons.light_mode : Icons.dark_mode,
+                color: textColor,
+              ),
+              onPressed: () => widget.toggleTheme(),
             ),
-            onPressed: () => widget.toggleTheme(),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: SizedBox(
-              width: double.infinity,
-              child: CupertinoSegmentedControl<int>(
-                selectedColor: accentColor,
-                borderColor: accentColor,
-                groupValue: _selectedSegment,
-                children: {
-                  0: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12.0,
-                      vertical: 8,
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          CupertinoIcons.cloud_download,
-                          color:
-                              _selectedSegment == 0
-                                  ? (widget.isDarkMode
-                                      ? Colors.black
-                                      : Colors.white)
-                                  : textColor,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Download',
-                          style: TextStyle(
+          ],
+        ),
+        body: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: SizedBox(
+                width: double.infinity,
+                child: CupertinoSegmentedControl<int>(
+                  selectedColor: accentColor,
+                  borderColor: accentColor,
+                  groupValue: _selectedSegment,
+                  children: {
+                    0: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12.0,
+                        vertical: 8,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            CupertinoIcons.cloud_download,
                             color:
                                 _selectedSegment == 0
                                     ? (widget.isDarkMode
@@ -232,28 +277,28 @@ class DownloaderAppState extends State<DownloaderApp> {
                                         : Colors.white)
                                     : textColor,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 8),
+                          Text(
+                            'Download',
+                            style: TextStyle(
+                              color:
+                                  _selectedSegment == 0
+                                      ? (widget.isDarkMode
+                                          ? Colors.black
+                                          : Colors.white)
+                                      : textColor,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  1: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20.0),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          CupertinoIcons.clock,
-                          color:
-                              _selectedSegment == 1
-                                  ? (widget.isDarkMode
-                                      ? Colors.black
-                                      : Colors.white)
-                                  : textColor,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'History',
-                          style: TextStyle(
+                    1: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            CupertinoIcons.clock,
                             color:
                                 _selectedSegment == 1
                                     ? (widget.isDarkMode
@@ -261,26 +306,38 @@ class DownloaderAppState extends State<DownloaderApp> {
                                         : Colors.white)
                                     : textColor,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 8),
+                          Text(
+                            'History',
+                            style: TextStyle(
+                              color:
+                                  _selectedSegment == 1
+                                      ? (widget.isDarkMode
+                                          ? Colors.black
+                                          : Colors.white)
+                                      : textColor,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                },
-                onValueChanged: (int value) {
-                  setState(() {
-                    _selectedSegment = value;
-                  });
-                },
+                  },
+                  onValueChanged: (int value) {
+                    setState(() {
+                      _selectedSegment = value;
+                    });
+                  },
+                ),
               ),
             ),
-          ),
-          Expanded(
-            child:
-                _selectedSegment == 0
-                    ? _buildDownloaderTab()
-                    : _buildHistoryTab(),
-          ),
-        ],
+            Expanded(
+              child:
+                  _selectedSegment == 0
+                      ? _buildDownloaderTab()
+                      : _buildHistoryTab(),
+            ),
+          ],
+        ),
       ),
     );
   }
