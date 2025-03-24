@@ -21,10 +21,10 @@ class DownloaderApp extends StatefulWidget {
   });
 
   @override
-  State<DownloaderApp> createState() => _DownloaderAppState();
+  State<DownloaderApp> createState() => DownloaderAppState();
 }
 
-class _DownloaderAppState extends State<DownloaderApp> {
+class DownloaderAppState extends State<DownloaderApp> {
   final TextEditingController urlController = TextEditingController();
   bool _isDownloading = false;
   double _downloadProgress = 0.0;
@@ -54,7 +54,7 @@ class _DownloaderAppState extends State<DownloaderApp> {
 
   Future<void> _downloadFile() async {
     if (urlController.text.isEmpty) {
-      _showSnackBar('Please enter a URL');
+      _showSnackBar('Please Enter A URL');
       return;
     }
 
@@ -68,18 +68,18 @@ class _DownloaderAppState extends State<DownloaderApp> {
         _totalBytes = 0;
       });
 
-      // Get file name from URL
+      /// Get file name from URL
       final fileName = path.basename(url);
 
-      // Get download directory
+      /// Get download directory
       final directory = await _getDownloadDirectory();
       final filePath = path.join(directory.path, fileName);
 
-      // Create file and open for writing
+      /// Create file and open for writing
       final file = File(filePath);
       final sink = file.openWrite();
 
-      // Start downloading
+      /// Start downloading
       final request = http.Request('GET', Uri.parse(url));
       final response = await http.Client().send(request);
 
@@ -92,13 +92,13 @@ class _DownloaderAppState extends State<DownloaderApp> {
 
       response.stream.listen(
         (List<int> chunk) {
-          // Update received bytes
+          /// Update received bytes
           receivedBytes += chunk.length;
 
-          // Write chunk directly to file
+          /// Write chunk directly to file
           sink.add(chunk);
 
-          // Update progress
+          /// Update progress
           setState(() {
             _receivedBytes = receivedBytes;
             if (contentLength > 0) {
@@ -107,11 +107,11 @@ class _DownloaderAppState extends State<DownloaderApp> {
           });
         },
         onDone: () async {
-          // Close the file
+          /// Close the file
           await sink.flush();
           await sink.close();
 
-          // Add to history
+          /// Add to history
           setState(() {
             downloadHistory.add(
               DownloadItem(
@@ -126,14 +126,14 @@ class _DownloaderAppState extends State<DownloaderApp> {
             _downloadProgress = 1.0;
           });
 
-          // Reset progress after a moment
+          /// Reset progress after a moment
           setState(() {
             _downloadProgress = 0.0;
           });
           _showSnackBar('Download completed: $fileName');
         },
         onError: (error) async {
-          // Make sure to close the sink on error
+          /// Make sure to close the sink on error
           await sink.close();
           setState(() {
             _isDownloading = false;
@@ -152,10 +152,10 @@ class _DownloaderAppState extends State<DownloaderApp> {
 
   Future<Directory> _getDownloadDirectory() async {
     if (Platform.isAndroid) {
-      // For Android, we'll use the downloads directory
+      /// For Android, we'll use the downloads directory
       return Directory('/storage/emulated/0/Download');
     } else {
-      // For iOS and others, we'll use the documents directory
+      /// For iOS and others, we'll use the documents directory
       return await getApplicationDocumentsDirectory();
     }
   }
