@@ -1,14 +1,14 @@
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:async_downloader/download_item.dart';
+import 'package:async_downloader/file_viewer.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
-
-import 'download_item.dart';
 
 class DownloaderApp extends StatefulWidget {
   final Function toggleTheme;
@@ -372,10 +372,30 @@ class DownloaderAppState extends State<DownloaderApp> {
             trailing: IconButton(
               icon: const Icon(CupertinoIcons.arrow_up_right_square),
               onPressed: () {
-                _showSnackBar('Opening file: ${item.fileName}');
-                // Here you could add functionality to open the file
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder:
+                        (context) => FileViewerScreen(
+                          downloadItem: item,
+                          isDarkMode: widget.isDarkMode,
+                        ),
+                  ),
+                );
               },
             ),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder:
+                      (context) => FileViewerScreen(
+                        downloadItem: item,
+                        isDarkMode: widget.isDarkMode,
+                      ),
+                ),
+              );
+            },
           ),
         );
       },
