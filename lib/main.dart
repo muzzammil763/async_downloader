@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -98,6 +99,8 @@ class _DownloaderAppState extends State<DownloaderApp> {
   double _downloadProgress = 0.0;
   final List<DownloadItem> _downloadHistory = [];
   int _selectedSegment = 0;
+  int _receivedBytes = 0;
+  int _totalBytes = 0;
 
   @override
   void initState() {
@@ -109,6 +112,13 @@ class _DownloaderAppState extends State<DownloaderApp> {
     if (Platform.isAndroid) {
       await Permission.storage.request();
     }
+  }
+
+  String _formatBytes(int bytes, int decimals) {
+    if (bytes <= 0) return "0 B";
+    const suffixes = ["B", "KB", "MB", "GB", "TB", "PB"];
+    var i = (math.log(bytes) / math.log(1024)).floor();
+    return '${(bytes / math.pow(1024, i)).toStringAsFixed(decimals)} ${suffixes[i]}';
   }
 
   Future<void> _downloadFile() async {
@@ -123,6 +133,8 @@ class _DownloaderAppState extends State<DownloaderApp> {
       setState(() {
         _isDownloading = true;
         _downloadProgress = 0.0;
+        _receivedBytes = 0;
+        _totalBytes = 0;
       });
 
       // Get file name from URL
@@ -132,34 +144,41 @@ class _DownloaderAppState extends State<DownloaderApp> {
       final directory = await _getDownloadDirectory();
       final filePath = path.join(directory.path, fileName);
 
-      // Create file
+      // Create file and open for writing
       final file = File(filePath);
+      final sink = file.openWrite();
 
       // Start downloading
       final request = http.Request('GET', Uri.parse(url));
       final response = await http.Client().send(request);
 
-      final contentLength = response.contentLength ?? 0;
-      int receivedBytes = 0;
+      final contentLength = response.contentLength ?? -1;
+      setState(() {
+        _totalBytes = contentLength > 0 ? contentLength : -1;
+      });
 
-      List<int> bytes = [];
+      int receivedBytes = 0;
 
       response.stream.listen(
         (List<int> chunk) {
           // Update received bytes
           receivedBytes += chunk.length;
-          bytes.addAll(chunk);
+
+          // Write chunk directly to file
+          sink.add(chunk);
 
           // Update progress
-          if (contentLength > 0) {
-            setState(() {
+          setState(() {
+            _receivedBytes = receivedBytes;
+            if (contentLength > 0) {
               _downloadProgress = receivedBytes / contentLength;
-            });
-          }
+            }
+          });
         },
         onDone: () async {
-          // Write to file
-          await file.writeAsBytes(bytes);
+          // Close the file
+          await sink.flush();
+          await sink.close();
 
           // Add to history
           setState(() {
@@ -169,24 +188,22 @@ class _DownloaderAppState extends State<DownloaderApp> {
                 fileName: fileName,
                 filePath: filePath,
                 dateTime: DateTime.now(),
+                fileSize: receivedBytes,
               ),
             );
             _isDownloading = false;
             _downloadProgress = 1.0;
           });
 
-          _showSnackBar('Download completed: $fileName');
-
           // Reset progress after a moment
-          Future.delayed(const Duration(seconds: 2), () {
-            if (mounted) {
-              setState(() {
-                _downloadProgress = 0.0;
-              });
-            }
+          setState(() {
+            _downloadProgress = 0.0;
           });
+          _showSnackBar('Download completed: $fileName');
         },
-        onError: (error) {
+        onError: (error) async {
+          // Make sure to close the sink on error
+          await sink.close();
           setState(() {
             _isDownloading = false;
           });
@@ -248,30 +265,24 @@ class _DownloaderAppState extends State<DownloaderApp> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: CupertinoSegmentedControl<int>(
-              selectedColor: accentColor,
-              borderColor: accentColor,
-              groupValue: _selectedSegment,
-              children: {
-                0: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20.0),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.download,
-                        color:
-                            _selectedSegment == 0
-                                ? (widget.isDarkMode
-                                    ? Colors.black
-                                    : Colors.white)
-                                : textColor,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Download',
-                        style: TextStyle(
+            padding: const EdgeInsets.only(top: 12),
+            child: SizedBox(
+              width: double.infinity,
+              child: CupertinoSegmentedControl<int>(
+                selectedColor: accentColor,
+                borderColor: accentColor,
+                groupValue: _selectedSegment,
+                children: {
+                  0: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12.0,
+                      vertical: 8,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          CupertinoIcons.cloud_download,
                           color:
                               _selectedSegment == 0
                                   ? (widget.isDarkMode
@@ -279,28 +290,28 @@ class _DownloaderAppState extends State<DownloaderApp> {
                                       : Colors.white)
                                   : textColor,
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 8),
+                        Text(
+                          'Download',
+                          style: TextStyle(
+                            color:
+                                _selectedSegment == 0
+                                    ? (widget.isDarkMode
+                                        ? Colors.black
+                                        : Colors.white)
+                                    : textColor,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                1: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20.0),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.history,
-                        color:
-                            _selectedSegment == 1
-                                ? (widget.isDarkMode
-                                    ? Colors.black
-                                    : Colors.white)
-                                : textColor,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'History',
-                        style: TextStyle(
+                  1: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          CupertinoIcons.clock,
                           color:
                               _selectedSegment == 1
                                   ? (widget.isDarkMode
@@ -308,16 +319,28 @@ class _DownloaderAppState extends State<DownloaderApp> {
                                       : Colors.white)
                                   : textColor,
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 8),
+                        Text(
+                          'History',
+                          style: TextStyle(
+                            color:
+                                _selectedSegment == 1
+                                    ? (widget.isDarkMode
+                                        ? Colors.black
+                                        : Colors.white)
+                                    : textColor,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              },
-              onValueChanged: (int value) {
-                setState(() {
-                  _selectedSegment = value;
-                });
-              },
+                },
+                onValueChanged: (int value) {
+                  setState(() {
+                    _selectedSegment = value;
+                  });
+                },
+              ),
             ),
           ),
           Expanded(
@@ -345,7 +368,7 @@ class _DownloaderAppState extends State<DownloaderApp> {
                 borderRadius: BorderRadius.circular(8.0),
               ),
               suffixIcon: IconButton(
-                icon: const Icon(Icons.clear),
+                icon: const Icon(CupertinoIcons.clear),
                 onPressed: () => _urlController.clear(),
               ),
             ),
@@ -358,21 +381,35 @@ class _DownloaderAppState extends State<DownloaderApp> {
             style: FilledButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 12.0),
             ),
-            child: Text(_isDownloading ? 'Downloading...' : 'Download'),
+            child: Text(_isDownloading ? 'Downloading ...' : 'Download'),
           ),
           const SizedBox(height: 24.0),
           if (_isDownloading || _downloadProgress > 0)
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Download Progress: ${(_downloadProgress * 100).toStringAsFixed(1)}%',
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      _totalBytes > 0
+                          ? 'Progress: ${(_downloadProgress * 100).toStringAsFixed(1)}%'
+                          : 'Downloading...',
+                    ),
+                    Text(
+                      _totalBytes > 0
+                          ? '${_formatBytes(_receivedBytes, 1)} of ${_formatBytes(_totalBytes, 1)}'
+                          : 'Downloaded: ${_formatBytes(_receivedBytes, 1)}',
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 8.0),
                 LinearProgressIndicator(
-                  value: _downloadProgress,
+                  value: _totalBytes > 0 ? _downloadProgress : null,
+                  // Indeterminate if size unknown
                   minHeight: 10,
                   borderRadius: BorderRadius.circular(5),
+                  backgroundColor: Colors.grey[300],
                 ),
               ],
             ),
@@ -383,26 +420,26 @@ class _DownloaderAppState extends State<DownloaderApp> {
 
   Widget _buildHistoryTab() {
     if (_downloadHistory.isEmpty) {
-      return const Center(child: Text('No download history yet'));
+      return const Center(child: Text('No Download History Yet'));
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.all(8.0),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       itemCount: _downloadHistory.length,
       itemBuilder: (context, index) {
         final item = _downloadHistory[_downloadHistory.length - 1 - index];
-        return Card(
-          elevation: 2,
+        return Card.outlined(
+          color: Colors.transparent,
           margin: const EdgeInsets.symmetric(vertical: 4.0),
           child: ListTile(
-            leading: const Icon(Icons.file_download_done),
+            leading: const Icon(CupertinoIcons.check_mark_circled),
             title: Text(item.fileName),
             subtitle: Text(
               '${item.url}\n${item.dateTime.toString().substring(0, 16)}',
             ),
             isThreeLine: true,
             trailing: IconButton(
-              icon: const Icon(Icons.open_in_new),
+              icon: const Icon(CupertinoIcons.arrow_up_right_square),
               onPressed: () {
                 _showSnackBar('Opening file: ${item.fileName}');
                 // Here you could add functionality to open the file
@@ -420,11 +457,13 @@ class DownloadItem {
   final String fileName;
   final String filePath;
   final DateTime dateTime;
+  final int fileSize;
 
   DownloadItem({
     required this.url,
     required this.fileName,
     required this.filePath,
     required this.dateTime,
+    required this.fileSize,
   });
 }
