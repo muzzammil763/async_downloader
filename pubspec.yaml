@@ -16,14 +16,12 @@ dependencies:
   path: ^1.9.1
   cupertino_icons: ^1.0.8
   open_file: ^3.5.10
-  rename_app: ^1.6.2
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
 
   flutter_lints: ^5.0.0
-  change_app_package_name: ^1.5.0
 
 flutter:
   uses-material-design: true
