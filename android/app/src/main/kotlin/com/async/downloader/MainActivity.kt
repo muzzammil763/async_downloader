@@ -1,4 +1,4 @@
-package com.async.downloader.async_downloader
+package com.async.downloader
 
 import io.flutter.embedding.android.FlutterActivity
 
