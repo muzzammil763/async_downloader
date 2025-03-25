@@ -26,7 +26,7 @@ class DownloaderApp extends StatefulWidget {
 }
 
 class DownloaderAppState extends State<DownloaderApp> {
-  final TextEditingController urlController = TextEditingController();
+  final List<TextEditingController> urlControllers = [TextEditingController()];
   bool _isDownloading = false;
   double _downloadProgress = 0.0;
   final List<DownloadItem> downloadHistory = [];
@@ -54,100 +54,106 @@ class DownloaderAppState extends State<DownloaderApp> {
   }
 
   Future<void> _downloadFile() async {
-    if (urlController.text.isEmpty) {
-      _showSnackBar('Please Enter A URL');
+    final urls =
+        urlControllers
+            .map((c) => c.text.trim())
+            .where((url) => url.isNotEmpty)
+            .toList();
+
+    if (urls.isEmpty) {
+      _showSnackBar('Please Enter At Least One URL');
       return;
     }
 
-    final url = urlController.text.trim();
+    for (final url in urls) {
+      try {
+        setState(() {
+          _isDownloading = true;
+          _downloadProgress = 0.0;
+          _receivedBytes = 0;
+          _totalBytes = 0;
+        });
 
-    try {
-      setState(() {
-        _isDownloading = true;
-        _downloadProgress = 0.0;
-        _receivedBytes = 0;
-        _totalBytes = 0;
-      });
+        /// Get file name from URL
+        final fileName = path.basename(url);
 
-      /// Get file name from URL
-      final fileName = path.basename(url);
+        /// Get download directory
+        final directory = await _getDownloadDirectory();
+        final filePath = path.join(directory.path, fileName);
 
-      /// Get download directory
-      final directory = await _getDownloadDirectory();
-      final filePath = path.join(directory.path, fileName);
+        /// Create file and open for writing
+        final file = File(filePath);
+        final sink = file.openWrite();
 
-      /// Create file and open for writing
-      final file = File(filePath);
-      final sink = file.openWrite();
+        /// Start downloading
+        final request = http.Request('GET', Uri.parse(url));
+        final response = await http.Client().send(request);
 
-      /// Start downloading
-      final request = http.Request('GET', Uri.parse(url));
-      final response = await http.Client().send(request);
+        final contentLength = response.contentLength ?? -1;
+        setState(() {
+          _totalBytes = contentLength > 0 ? contentLength : -1;
+        });
 
-      final contentLength = response.contentLength ?? -1;
-      setState(() {
-        _totalBytes = contentLength > 0 ? contentLength : -1;
-      });
+        int receivedBytes = 0;
 
-      int receivedBytes = 0;
+        response.stream.listen(
+          (List<int> chunk) {
+            /// Update received bytes
+            receivedBytes += chunk.length;
 
-      response.stream.listen(
-        (List<int> chunk) {
-          /// Update received bytes
-          receivedBytes += chunk.length;
+            /// Write chunk directly to file
+            sink.add(chunk);
 
-          /// Write chunk directly to file
-          sink.add(chunk);
+            /// Update progress
+            setState(() {
+              _receivedBytes = receivedBytes;
+              if (contentLength > 0) {
+                _downloadProgress = receivedBytes / contentLength;
+              }
+            });
+          },
+          onDone: () async {
+            /// Close the file
+            await sink.flush();
+            await sink.close();
 
-          /// Update progress
-          setState(() {
-            _receivedBytes = receivedBytes;
-            if (contentLength > 0) {
-              _downloadProgress = receivedBytes / contentLength;
-            }
-          });
-        },
-        onDone: () async {
-          /// Close the file
-          await sink.flush();
-          await sink.close();
+            /// Add to history
+            setState(() {
+              downloadHistory.add(
+                DownloadItem(
+                  url: url,
+                  fileName: fileName,
+                  filePath: filePath,
+                  dateTime: DateTime.now(),
+                  fileSize: receivedBytes,
+                ),
+              );
+              _isDownloading = false;
+              _downloadProgress = 1.0;
+            });
 
-          /// Add to history
-          setState(() {
-            downloadHistory.add(
-              DownloadItem(
-                url: url,
-                fileName: fileName,
-                filePath: filePath,
-                dateTime: DateTime.now(),
-                fileSize: receivedBytes,
-              ),
-            );
-            _isDownloading = false;
-            _downloadProgress = 1.0;
-          });
-
-          /// Reset progress after a moment
-          setState(() {
-            _downloadProgress = 0.0;
-          });
-          _showSnackBar('Download completed: $fileName');
-        },
-        onError: (error) async {
-          /// Make sure to close the sink on error
-          await sink.close();
-          setState(() {
-            _isDownloading = false;
-          });
-          _showSnackBar('Error downloading: $error');
-        },
-        cancelOnError: true,
-      );
-    } catch (e) {
-      setState(() {
-        _isDownloading = false;
-      });
-      _showSnackBar('Error: $e');
+            /// Reset progress after a moment
+            setState(() {
+              _downloadProgress = 0.0;
+            });
+            _showSnackBar('Download completed: $fileName');
+          },
+          onError: (error) async {
+            /// Make sure to close the sink on error
+            await sink.close();
+            setState(() {
+              _isDownloading = false;
+            });
+            _showSnackBar('Error downloading: $error');
+          },
+          cancelOnError: true,
+        );
+      } catch (e) {
+        setState(() {
+          _isDownloading = false;
+        });
+        _showSnackBar('Error downloading $url: $e');
+      }
     }
   }
 
@@ -169,7 +175,9 @@ class DownloaderAppState extends State<DownloaderApp> {
 
   @override
   void dispose() {
-    urlController.dispose();
+    for (var controller in urlControllers) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -343,65 +351,101 @@ class DownloaderAppState extends State<DownloaderApp> {
   }
 
   Widget _buildDownloaderTab() {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          TextField(
-            controller: urlController,
-            decoration: InputDecoration(
-              hintText: 'Paste download URL here',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8.0),
-              ),
-              suffixIcon: IconButton(
-                icon: const Icon(CupertinoIcons.clear),
-                onPressed: () => urlController.clear(),
-              ),
-            ),
-            keyboardType: TextInputType.url,
-            autocorrect: false,
-          ),
-          const SizedBox(height: 16.0),
-          FilledButton(
-            onPressed: _isDownloading ? null : _downloadFile,
-            style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 12.0),
-            ),
-            child: Text(_isDownloading ? 'Downloading ...' : 'Download'),
-          ),
-          const SizedBox(height: 24.0),
-          if (_isDownloading || _downloadProgress > 0)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      _totalBytes > 0
-                          ? 'Progress: ${(_downloadProgress * 100).toStringAsFixed(1)}%'
-                          : 'Downloading...',
+    return Scaffold(
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          setState(() {
+            urlControllers.add(TextEditingController());
+          });
+        },
+        child: const Icon(Icons.add),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: ListView.builder(
+                itemCount: urlControllers.length,
+                itemBuilder: (context, index) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8.0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: urlControllers[index],
+                            decoration: InputDecoration(
+                              hintText: 'Paste download URL here',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8.0),
+                              ),
+                              suffixIcon: IconButton(
+                                icon: const Icon(CupertinoIcons.clear),
+                                onPressed: () => urlControllers[index].clear(),
+                              ),
+                            ),
+                            keyboardType: TextInputType.url,
+                            autocorrect: false,
+                          ),
+                        ),
+                        if (index > 0)
+                          IconButton(
+                            icon: const Icon(Icons.remove_circle_outline),
+                            onPressed: () {
+                              setState(() {
+                                urlControllers[index].dispose();
+                                urlControllers.removeAt(index);
+                              });
+                            },
+                          ),
+                      ],
                     ),
-                    Text(
-                      _totalBytes > 0
-                          ? '${_formatBytes(_receivedBytes, 1)} of ${_formatBytes(_totalBytes, 1)}'
-                          : 'Downloaded: ${_formatBytes(_receivedBytes, 1)}',
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8.0),
-                LinearProgressIndicator(
-                  value: _totalBytes > 0 ? _downloadProgress : null,
-                  // Indeterminate if size unknown
-                  minHeight: 10,
-                  borderRadius: BorderRadius.circular(5),
-                  backgroundColor: Colors.grey[300],
-                ),
-              ],
+                  );
+                },
+              ),
             ),
-        ],
+            const SizedBox(height: 16.0),
+            FilledButton(
+              onPressed: _isDownloading ? null : _downloadFile,
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 12.0),
+              ),
+              child: Text(_isDownloading ? 'Downloading ...' : 'Download'),
+            ),
+            const SizedBox(height: 24.0),
+            if (_isDownloading || _downloadProgress > 0)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        _totalBytes > 0
+                            ? 'Progress: ${(_downloadProgress * 100).toStringAsFixed(1)}%'
+                            : 'Downloading...',
+                      ),
+                      Text(
+                        _totalBytes > 0
+                            ? '${_formatBytes(_receivedBytes, 1)} of ${_formatBytes(_totalBytes, 1)}'
+                            : 'Downloaded: ${_formatBytes(_receivedBytes, 1)}',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8.0),
+                  LinearProgressIndicator(
+                    value: _totalBytes > 0 ? _downloadProgress : null,
+                    // Indeterminate if size unknown
+                    minHeight: 10,
+                    borderRadius: BorderRadius.circular(5),
+                    backgroundColor: Colors.grey[300],
+                  ),
+                ],
+              ),
+          ],
+        ),
       ),
     );
   }
