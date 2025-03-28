@@ -46,11 +46,19 @@ class ActiveDownload {
   });
 }
 
+enum DownloadMode {
+  parallel,
+  sequential
+}
+
 class DownloaderAppState extends State<DownloaderApp> {
   final List<TextEditingController> urlControllers = [TextEditingController()];
   final List<ActiveDownload> activeDownloads = [];
   final List<DownloadItem> downloadHistory = [];
   int _selectedSegment = 0;
+  DownloadMode _downloadMode = DownloadMode.parallel;
+  List<String> _pendingDownloads = [];
+  bool _processingSequentialDownloads = false;
 
   @override
   void initState() {
@@ -83,18 +91,49 @@ class DownloaderAppState extends State<DownloaderApp> {
       return;
     }
 
-    // Start downloads for all URLs
-    for (final url in urls) {
-      await _startDownload(url);
-    }
-
     // Clear URL fields after starting downloads
     for (var controller in urlControllers) {
       controller.clear();
     }
+    
+    if (_downloadMode == DownloadMode.parallel) {
+      // Start all downloads in parallel
+      for (final url in urls) {
+        await _startDownload(url);
+      }
+    } else {
+      // Sequential mode: add to pending queue and start if not already processing
+      setState(() {
+        _pendingDownloads.addAll(urls);
+      });
+      
+      if (!_processingSequentialDownloads) {
+        _processNextSequentialDownload();
+      }
+    }
   }
 
-  Future<void> _startDownload(String url) async {
+  Future<void> _processNextSequentialDownload() async {
+    if (_pendingDownloads.isEmpty) {
+      setState(() {
+        _processingSequentialDownloads = false;
+      });
+      return;
+    }
+    
+    setState(() {
+      _processingSequentialDownloads = true;
+    });
+    
+    final url = _pendingDownloads.first;
+    setState(() {
+      _pendingDownloads.removeAt(0);
+    });
+    
+    await _startDownload(url, isSequential: true);
+  }
+
+  Future<void> _startDownload(String url, {bool isSequential = false}) async {
     try {
       // Get file name from URL
       final fileName = path.basename(url);
@@ -177,6 +216,11 @@ class DownloaderAppState extends State<DownloaderApp> {
             setState(() {
               activeDownloads.remove(activeDownload);
             });
+            
+            // If this was a sequential download, process the next one
+            if (isSequential) {
+              _processNextSequentialDownload();
+            }
           });
         },
         onError: (error) async {
@@ -190,6 +234,11 @@ class DownloaderAppState extends State<DownloaderApp> {
           });
 
           _showSnackBar('Error downloading: $error');
+          
+          // If this was a sequential download, process the next one
+          if (isSequential) {
+            _processNextSequentialDownload();
+          }
         },
         cancelOnError: true,
       );
@@ -273,6 +322,10 @@ class DownloaderAppState extends State<DownloaderApp> {
       download.subscription?.cancel();
       download.fileSink?.close();
     }
+    
+    // Clear pending downloads
+    _pendingDownloads.clear();
+    _processingSequentialDownloads = false;
 
     // Dispose controllers
     for (var controller in urlControllers) {
@@ -450,6 +503,62 @@ class DownloaderAppState extends State<DownloaderApp> {
                   urlControllers.add(TextEditingController());
                 });
               },
+            ),
+            PopupMenuButton<DownloadMode>(
+              icon: Icon(
+                _downloadMode == DownloadMode.parallel
+                    ? Icons.sync
+                    : Icons.sync_disabled,
+                color: textColor,
+              ),
+              tooltip: 'Download Mode',
+              onSelected: (DownloadMode mode) {
+                setState(() {
+                  _downloadMode = mode;
+                });
+              },
+              itemBuilder: (BuildContext context) => [
+                PopupMenuItem<DownloadMode>(
+                  value: DownloadMode.parallel,
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.sync,
+                        color: _downloadMode == DownloadMode.parallel
+                            ? Theme.of(context).colorScheme.primary
+                            : null,
+                      ),
+                      const SizedBox(width: 8),
+                      const Text('Parallel Downloads'),
+                      if (_downloadMode == DownloadMode.parallel)
+                        Icon(
+                          Icons.check,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                    ],
+                  ),
+                ),
+                PopupMenuItem<DownloadMode>(
+                  value: DownloadMode.sequential,
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.sync_disabled,
+                        color: _downloadMode == DownloadMode.sequential
+                            ? Theme.of(context).colorScheme.primary
+                            : null,
+                      ),
+                      const SizedBox(width: 8),
+                      const Text('Sequential Downloads'),
+                      if (_downloadMode == DownloadMode.sequential)
+                        Icon(
+                          Icons.check,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ],
         ),
