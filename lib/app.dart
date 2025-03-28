@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui';
@@ -25,14 +26,31 @@ class DownloaderApp extends StatefulWidget {
   State<DownloaderApp> createState() => DownloaderAppState();
 }
 
+class ActiveDownload {
+  final String url;
+  final String fileName;
+  final String filePath;
+  double progress = 0.0;
+  int receivedBytes = 0;
+  int totalBytes = 0;
+  bool isCompleted = false;
+  bool hasError = false;
+  String? errorMessage;
+  StreamSubscription? subscription;
+  IOSink? fileSink;
+  
+  ActiveDownload({
+    required this.url,
+    required this.fileName,
+    required this.filePath,
+  });
+}
+
 class DownloaderAppState extends State<DownloaderApp> {
   final List<TextEditingController> urlControllers = [TextEditingController()];
-  bool _isDownloading = false;
-  double _downloadProgress = 0.0;
+  final List<ActiveDownload> activeDownloads = [];
   final List<DownloadItem> downloadHistory = [];
   int _selectedSegment = 0;
-  int _receivedBytes = 0;
-  int _totalBytes = 0;
 
   @override
   void initState() {
@@ -65,95 +83,170 @@ class DownloaderAppState extends State<DownloaderApp> {
       return;
     }
 
+    // Start downloads for all URLs
     for (final url in urls) {
-      try {
-        setState(() {
-          _isDownloading = true;
-          _downloadProgress = 0.0;
-          _receivedBytes = 0;
-          _totalBytes = 0;
-        });
+      await _startDownload(url);
+    }
+    
+    // Clear URL fields after starting downloads
+    for (var controller in urlControllers) {
+      controller.clear();
+    }
+  }
+  
+  Future<void> _startDownload(String url) async {
+    try {
+      // Get file name from URL
+      final fileName = path.basename(url);
 
-        /// Get file name from URL
-        final fileName = path.basename(url);
+      // Get download directory
+      final directory = await _getDownloadDirectory();
+      final filePath = path.join(directory.path, fileName);
 
-        /// Get download directory
-        final directory = await _getDownloadDirectory();
-        final filePath = path.join(directory.path, fileName);
+      // Check if file already exists and create a unique name if needed
+      final file = await _createUniqueFile(filePath);
+      final uniqueFilePath = file.path;
+      final uniqueFileName = path.basename(uniqueFilePath);
+      
+      // Create active download object
+      final activeDownload = ActiveDownload(
+        url: url,
+        fileName: uniqueFileName,
+        filePath: uniqueFilePath,
+      );
+      
+      setState(() {
+        activeDownloads.add(activeDownload);
+      });
 
-        /// Create file and open for writing
-        final file = File(filePath);
-        final sink = file.openWrite();
+      // Create file and open for writing
+      final sink = file.openWrite();
+      activeDownload.fileSink = sink;
 
-        /// Start downloading
-        final request = http.Request('GET', Uri.parse(url));
-        final response = await http.Client().send(request);
+      // Start downloading
+      final request = http.Request('GET', Uri.parse(url));
+      final response = await http.Client().send(request);
 
-        final contentLength = response.contentLength ?? -1;
-        setState(() {
-          _totalBytes = contentLength > 0 ? contentLength : -1;
-        });
+      final contentLength = response.contentLength ?? -1;
+      setState(() {
+        activeDownload.totalBytes = contentLength > 0 ? contentLength : -1;
+      });
 
-        int receivedBytes = 0;
+      // Listen to the download stream
+      final subscription = response.stream.listen(
+        (List<int> chunk) {
+          // Update received bytes
+          activeDownload.receivedBytes += chunk.length;
 
-        response.stream.listen(
-          (List<int> chunk) {
-            /// Update received bytes
-            receivedBytes += chunk.length;
+          // Write chunk directly to file
+          sink.add(chunk);
 
-            /// Write chunk directly to file
-            sink.add(chunk);
+          // Update progress
+          setState(() {
+            if (contentLength > 0) {
+              activeDownload.progress = activeDownload.receivedBytes / contentLength;
+            }
+          });
+        },
+        onDone: () async {
+          // Close the file
+          await sink.flush();
+          await sink.close();
+          activeDownload.fileSink = null;
 
-            /// Update progress
+          // Add to history and mark as completed
+          setState(() {
+            downloadHistory.add(
+              DownloadItem(
+                url: url,
+                fileName: uniqueFileName,
+                filePath: uniqueFilePath,
+                dateTime: DateTime.now(),
+                fileSize: activeDownload.receivedBytes,
+              ),
+            );
+            activeDownload.isCompleted = true;
+            activeDownload.progress = 1.0;
+          });
+
+          _showSnackBar('Download completed: ${activeDownload.fileName}');
+          
+          // Remove completed download from active list after a delay
+          Future.delayed(const Duration(seconds: 3), () {
             setState(() {
-              _receivedBytes = receivedBytes;
-              if (contentLength > 0) {
-                _downloadProgress = receivedBytes / contentLength;
-              }
+              activeDownloads.remove(activeDownload);
             });
-          },
-          onDone: () async {
-            /// Close the file
-            await sink.flush();
-            await sink.close();
-
-            /// Add to history
-            setState(() {
-              downloadHistory.add(
-                DownloadItem(
-                  url: url,
-                  fileName: fileName,
-                  filePath: filePath,
-                  dateTime: DateTime.now(),
-                  fileSize: receivedBytes,
-                ),
-              );
-              _isDownloading = false;
-              _downloadProgress = 1.0;
-            });
-
-            /// Reset progress after a moment
-            setState(() {
-              _downloadProgress = 0.0;
-            });
-            _showSnackBar('Download completed: $fileName');
-          },
-          onError: (error) async {
-            /// Make sure to close the sink on error
-            await sink.close();
-            setState(() {
-              _isDownloading = false;
-            });
-            _showSnackBar('Error downloading: $error');
-          },
-          cancelOnError: true,
-        );
-      } catch (e) {
-        setState(() {
-          _isDownloading = false;
-        });
-        _showSnackBar('Error downloading $url: $e');
+          });
+        },
+        onError: (error) async {
+          // Make sure to close the sink on error
+          await sink.close();
+          activeDownload.fileSink = null;
+          
+          setState(() {
+            activeDownload.hasError = true;
+            activeDownload.errorMessage = error.toString();
+          });
+          
+          _showSnackBar('Error downloading: $error');
+        },
+        cancelOnError: true,
+      );
+      
+      // Store subscription for possible cancellation
+      activeDownload.subscription = subscription;
+      
+    } catch (e) {
+      _showSnackBar('Error starting download for $url: $e');
+    }
+  }
+  
+  Future<File> _createUniqueFile(String filePath) async {
+    final file = File(filePath);
+    if (!await file.exists()) {
+      return file;
+    }
+    
+    // If file exists, create a unique name by adding a number
+    int counter = 1;
+    String directory = path.dirname(filePath);
+    String fileName = path.basenameWithoutExtension(filePath);
+    String extension = path.extension(filePath);
+    
+    while (true) {
+      final newPath = path.join(directory, '$fileName($counter)$extension');
+      final newFile = File(newPath);
+      if (!await newFile.exists()) {
+        return newFile;
       }
+      counter++;
+    }
+  }
+  
+  void _cancelDownload(ActiveDownload download) async {
+    try {
+      // Cancel the stream subscription
+      await download.subscription?.cancel();
+      
+      // Close the file sink if it's open
+      if (download.fileSink != null) {
+        await download.fileSink!.close();
+      }
+      
+      // Delete the partial file
+      final file = File(download.filePath);
+      if (await file.exists()) {
+        await file.delete();
+      }
+      
+      // Remove from active downloads
+      setState(() {
+        activeDownloads.remove(download);
+      });
+      
+      _showSnackBar('Download cancelled: ${download.fileName}');
+    } catch (e) {
+      _showSnackBar('Error cancelling download: $e');
     }
   }
 
@@ -175,10 +268,87 @@ class DownloaderAppState extends State<DownloaderApp> {
 
   @override
   void dispose() {
+    // Cancel all active downloads
+    for (var download in activeDownloads) {
+      download.subscription?.cancel();
+      download.fileSink?.close();
+    }
+    
+    // Dispose controllers
     for (var controller in urlControllers) {
       controller.dispose();
     }
     super.dispose();
+  }
+
+  Widget _buildDownloadItem(ActiveDownload download) {
+    final progressText = download.totalBytes > 0
+        ? '${_formatBytes(download.receivedBytes, 1)} / ${_formatBytes(download.totalBytes, 1)}'
+        : '${_formatBytes(download.receivedBytes, 1)} / Unknown';
+        
+    final progressPercentage = download.totalBytes > 0
+        ? '${(download.progress * 100).toStringAsFixed(1)}%'
+        : 'Downloading...';  
+        
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8.0),
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    download.fileName,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (!download.isCompleted && !download.hasError)
+                  IconButton(
+                    icon: const Icon(Icons.cancel, size: 20),
+                    onPressed: () => _cancelDownload(download),
+                    tooltip: 'Cancel download',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            LinearProgressIndicator(
+              value: download.hasError ? 0 : (download.totalBytes > 0 ? download.progress : null),
+              minHeight: 8,
+              borderRadius: BorderRadius.circular(4),
+              backgroundColor: download.hasError ? Colors.red.withOpacity(0.2) : null,
+              color: download.hasError ? Colors.red : (download.isCompleted ? Colors.green : null),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  download.hasError ? 'Error: ${download.errorMessage}' : progressText,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: download.hasError ? Colors.red : null,
+                  ),
+                ),
+                Text(
+                  download.hasError ? 'Failed' : (download.isCompleted ? 'Completed' : progressPercentage),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: download.hasError ? Colors.red : (download.isCompleted ? Colors.green : null),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildResponsiveWrapper(Widget child) {
@@ -408,40 +578,22 @@ class DownloaderAppState extends State<DownloaderApp> {
             ),
             const SizedBox(height: 16.0),
             FilledButton(
-              onPressed: _isDownloading ? null : _downloadFile,
+              onPressed: _downloadFile,
               style: FilledButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 12.0),
               ),
-              child: Text(_isDownloading ? 'Downloading ...' : 'Download'),
+              child: const Text('Download'),
             ),
             const SizedBox(height: 24.0),
-            if (_isDownloading || _downloadProgress > 0)
+            if (activeDownloads.isNotEmpty)
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        _totalBytes > 0
-                            ? 'Progress: ${(_downloadProgress * 100).toStringAsFixed(1)}%'
-                            : 'Downloading...',
-                      ),
-                      Text(
-                        _totalBytes > 0
-                            ? '${_formatBytes(_receivedBytes, 1)} of ${_formatBytes(_totalBytes, 1)}'
-                            : 'Downloaded: ${_formatBytes(_receivedBytes, 1)}',
-                      ),
-                    ],
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8.0),
+                    child: Text('Active Downloads', style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
-                  const SizedBox(height: 8.0),
-                  LinearProgressIndicator(
-                    value: _totalBytes > 0 ? _downloadProgress : null,
-                    // Indeterminate if size unknown
-                    minHeight: 10,
-                    borderRadius: BorderRadius.circular(5),
-                    backgroundColor: Colors.grey[300],
-                  ),
+                  ...activeDownloads.map((download) => _buildDownloadItem(download)).toList(),
                 ],
               ),
           ],
