@@ -6,6 +6,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:open_file/open_file.dart';
 import 'package:path/path.dart' as path;
+import 'package:share_plus/share_plus.dart';
 
 class FileViewerScreen extends StatelessWidget {
   final DownloadItem downloadItem;
@@ -40,12 +41,7 @@ class FileViewerScreen extends StatelessWidget {
           if (fileExists)
             IconButton(
               icon: Icon(Icons.share, color: textColor),
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Sharing file...')),
-                );
-                // Here you would implement file sharing functionality
-              },
+              onPressed: () => _shareFile(context),
             ),
         ],
       ),
@@ -451,5 +447,67 @@ class FileViewerScreen extends StatelessWidget {
 
   String _formatDateTime(DateTime dateTime) {
     return '${dateTime.day}/${dateTime.month}/${dateTime.year} at ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
+  }
+  
+  void _shareFile(BuildContext context) async {
+    try {
+      final file = File(downloadItem.filePath);
+      if (await file.exists()) {
+        // Get file mime type based on extension
+        final mimeType = _getMimeType(path.extension(downloadItem.fileName).toLowerCase());
+        
+        // Show sharing dialog
+        await Share.shareXFiles(
+          [XFile(downloadItem.filePath, mimeType: mimeType)],
+          subject: 'Sharing ${downloadItem.fileName}',
+          text: 'Sharing file downloaded from ${downloadItem.url}',
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('File not found')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error sharing file: $e')),
+      );
+    }
+  }
+  
+  String _getMimeType(String fileExtension) {
+    switch (fileExtension) {
+      case '.jpg':
+      case '.jpeg':
+        return 'image/jpeg';
+      case '.png':
+        return 'image/png';
+      case '.gif':
+        return 'image/gif';
+      case '.pdf':
+        return 'application/pdf';
+      case '.txt':
+        return 'text/plain';
+      case '.doc':
+      case '.docx':
+        return 'application/msword';
+      case '.xls':
+      case '.xlsx':
+        return 'application/vnd.ms-excel';
+      case '.ppt':
+      case '.pptx':
+        return 'application/vnd.ms-powerpoint';
+      case '.mp3':
+        return 'audio/mpeg';
+      case '.mp4':
+        return 'video/mp4';
+      case '.zip':
+        return 'application/zip';
+      case '.json':
+        return 'application/json';
+      case '.csv':
+        return 'text/csv';
+      default:
+        return 'application/octet-stream'; // Default binary data
+    }
   }
 }

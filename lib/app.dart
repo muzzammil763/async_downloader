@@ -38,7 +38,7 @@ class ActiveDownload {
   String? errorMessage;
   StreamSubscription? subscription;
   IOSink? fileSink;
-  
+
   ActiveDownload({
     required this.url,
     required this.fileName,
@@ -87,13 +87,13 @@ class DownloaderAppState extends State<DownloaderApp> {
     for (final url in urls) {
       await _startDownload(url);
     }
-    
+
     // Clear URL fields after starting downloads
     for (var controller in urlControllers) {
       controller.clear();
     }
   }
-  
+
   Future<void> _startDownload(String url) async {
     try {
       // Get file name from URL
@@ -107,14 +107,14 @@ class DownloaderAppState extends State<DownloaderApp> {
       final file = await _createUniqueFile(filePath);
       final uniqueFilePath = file.path;
       final uniqueFileName = path.basename(uniqueFilePath);
-      
+
       // Create active download object
       final activeDownload = ActiveDownload(
         url: url,
         fileName: uniqueFileName,
         filePath: uniqueFilePath,
       );
-      
+
       setState(() {
         activeDownloads.add(activeDownload);
       });
@@ -144,7 +144,8 @@ class DownloaderAppState extends State<DownloaderApp> {
           // Update progress
           setState(() {
             if (contentLength > 0) {
-              activeDownload.progress = activeDownload.receivedBytes / contentLength;
+              activeDownload.progress =
+                  activeDownload.receivedBytes / contentLength;
             }
           });
         },
@@ -170,7 +171,7 @@ class DownloaderAppState extends State<DownloaderApp> {
           });
 
           _showSnackBar('Download completed: ${activeDownload.fileName}');
-          
+
           // Remove completed download from active list after a delay
           Future.delayed(const Duration(seconds: 3), () {
             setState(() {
@@ -182,37 +183,36 @@ class DownloaderAppState extends State<DownloaderApp> {
           // Make sure to close the sink on error
           await sink.close();
           activeDownload.fileSink = null;
-          
+
           setState(() {
             activeDownload.hasError = true;
             activeDownload.errorMessage = error.toString();
           });
-          
+
           _showSnackBar('Error downloading: $error');
         },
         cancelOnError: true,
       );
-      
+
       // Store subscription for possible cancellation
       activeDownload.subscription = subscription;
-      
     } catch (e) {
       _showSnackBar('Error starting download for $url: $e');
     }
   }
-  
+
   Future<File> _createUniqueFile(String filePath) async {
     final file = File(filePath);
     if (!await file.exists()) {
       return file;
     }
-    
+
     // If file exists, create a unique name by adding a number
     int counter = 1;
     String directory = path.dirname(filePath);
     String fileName = path.basenameWithoutExtension(filePath);
     String extension = path.extension(filePath);
-    
+
     while (true) {
       final newPath = path.join(directory, '$fileName($counter)$extension');
       final newFile = File(newPath);
@@ -222,28 +222,28 @@ class DownloaderAppState extends State<DownloaderApp> {
       counter++;
     }
   }
-  
+
   void _cancelDownload(ActiveDownload download) async {
     try {
       // Cancel the stream subscription
       await download.subscription?.cancel();
-      
+
       // Close the file sink if it's open
       if (download.fileSink != null) {
         await download.fileSink!.close();
       }
-      
+
       // Delete the partial file
       final file = File(download.filePath);
       if (await file.exists()) {
         await file.delete();
       }
-      
+
       // Remove from active downloads
       setState(() {
         activeDownloads.remove(download);
       });
-      
+
       _showSnackBar('Download cancelled: ${download.fileName}');
     } catch (e) {
       _showSnackBar('Error cancelling download: $e');
@@ -273,7 +273,7 @@ class DownloaderAppState extends State<DownloaderApp> {
       download.subscription?.cancel();
       download.fileSink?.close();
     }
-    
+
     // Dispose controllers
     for (var controller in urlControllers) {
       controller.dispose();
@@ -282,14 +282,16 @@ class DownloaderAppState extends State<DownloaderApp> {
   }
 
   Widget _buildDownloadItem(ActiveDownload download) {
-    final progressText = download.totalBytes > 0
-        ? '${_formatBytes(download.receivedBytes, 1)} / ${_formatBytes(download.totalBytes, 1)}'
-        : '${_formatBytes(download.receivedBytes, 1)} / Unknown';
-        
-    final progressPercentage = download.totalBytes > 0
-        ? '${(download.progress * 100).toStringAsFixed(1)}%'
-        : 'Downloading...';  
-        
+    final progressText =
+        download.totalBytes > 0
+            ? '${_formatBytes(download.receivedBytes, 1)} / ${_formatBytes(download.totalBytes, 1)}'
+            : '${_formatBytes(download.receivedBytes, 1)} / Unknown';
+
+    final progressPercentage =
+        download.totalBytes > 0
+            ? '${(download.progress * 100).toStringAsFixed(1)}%'
+            : 'Downloading...';
+
     return Card(
       margin: const EdgeInsets.only(bottom: 8.0),
       child: Padding(
@@ -319,28 +321,44 @@ class DownloaderAppState extends State<DownloaderApp> {
             ),
             const SizedBox(height: 8),
             LinearProgressIndicator(
-              value: download.hasError ? 0 : (download.totalBytes > 0 ? download.progress : null),
+              value:
+                  download.hasError
+                      ? 0
+                      : (download.totalBytes > 0 ? download.progress : null),
               minHeight: 8,
               borderRadius: BorderRadius.circular(4),
-              backgroundColor: download.hasError ? Colors.red.withOpacity(0.2) : null,
-              color: download.hasError ? Colors.red : (download.isCompleted ? Colors.green : null),
+              backgroundColor:
+                  download.hasError ? Colors.red.withOpacity(0.2) : null,
+              color:
+                  download.hasError
+                      ? Colors.red
+                      : (download.isCompleted ? Colors.green : null),
             ),
             const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  download.hasError ? 'Error: ${download.errorMessage}' : progressText,
+                  download.hasError
+                      ? 'Error: ${download.errorMessage}'
+                      : progressText,
                   style: TextStyle(
                     fontSize: 12,
                     color: download.hasError ? Colors.red : null,
                   ),
                 ),
                 Text(
-                  download.hasError ? 'Failed' : (download.isCompleted ? 'Completed' : progressPercentage),
+                  download.hasError
+                      ? 'Failed'
+                      : (download.isCompleted
+                          ? 'Completed'
+                          : progressPercentage),
                   style: TextStyle(
                     fontSize: 12,
-                    color: download.hasError ? Colors.red : (download.isCompleted ? Colors.green : null),
+                    color:
+                        download.hasError
+                            ? Colors.red
+                            : (download.isCompleted ? Colors.green : null),
                   ),
                 ),
               ],
@@ -417,13 +435,21 @@ class DownloaderAppState extends State<DownloaderApp> {
         appBar: AppBar(
           centerTitle: true,
           title: Text('Async Downloader', style: TextStyle(color: textColor)),
+          leading: IconButton(
+            icon: Icon(
+              widget.isDarkMode ? Icons.light_mode : Icons.dark_mode,
+              color: textColor,
+            ),
+            onPressed: () => widget.toggleTheme(),
+          ),
           actions: [
             IconButton(
-              icon: Icon(
-                widget.isDarkMode ? Icons.light_mode : Icons.dark_mode,
-                color: textColor,
-              ),
-              onPressed: () => widget.toggleTheme(),
+              icon: Icon(Icons.add, color: textColor),
+              onPressed: () {
+                setState(() {
+                  urlControllers.add(TextEditingController());
+                });
+              },
             ),
           ],
         ),
@@ -522,14 +548,6 @@ class DownloaderAppState extends State<DownloaderApp> {
 
   Widget _buildDownloaderTab() {
     return Scaffold(
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          setState(() {
-            urlControllers.add(TextEditingController());
-          });
-        },
-        child: const Icon(Icons.add),
-      ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -562,6 +580,10 @@ class DownloaderAppState extends State<DownloaderApp> {
                         ),
                         if (index > 0)
                           IconButton(
+                            style: IconButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              visualDensity: VisualDensity.compact,
+                            ),
                             icon: const Icon(Icons.remove_circle_outline),
                             onPressed: () {
                               setState(() {
@@ -590,10 +612,15 @@ class DownloaderAppState extends State<DownloaderApp> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8.0),
-                    child: Text('Active Downloads', style: TextStyle(fontWeight: FontWeight.bold)),
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Text(
+                      'Active Downloads',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
                   ),
-                  ...activeDownloads.map((download) => _buildDownloadItem(download)).toList(),
+                  ...activeDownloads
+                      .map((download) => _buildDownloadItem(download))
+                      .toList(),
                 ],
               ),
           ],
